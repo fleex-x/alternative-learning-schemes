@@ -3,7 +3,15 @@ from torch import nn
 from torch import optim
 from torch.utils.data import DataLoader
 from typing import List
-from common import model_size
+
+def model_size(model: nn.Module):
+    sz = 0
+    for p in filter(lambda p: p.requires_grad , model.parameters()):
+        mul = 1
+        for x in p.size():
+            mul *= x
+        sz += mul
+    return sz
 
 class TrainingStats:
     loss: List[float]

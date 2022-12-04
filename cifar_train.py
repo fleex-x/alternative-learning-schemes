@@ -20,6 +20,9 @@ from random import randint
 import datetime
 import json
 
+from train_methods import *
+from common import *
+
 def main():
     parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Training')
     parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
@@ -99,7 +102,7 @@ def main():
     ])
 
     trainset_class = torchvision.datasets.CIFAR10(root='data/', train=True, download=True,transform=transform_train)
-    trainloader_classifier = torch.utils.data.DataLoader(trainset_class, batch_size=args.batch_size, shuffle=True, num_workers=args.workers)
+    trainloader = torch.utils.data.DataLoader(trainset_class, batch_size=args.batch_size, shuffle=True, num_workers=args.workers)
     testset = torchvision.datasets.CIFAR10(root='data/', train=False, download=True, transform=transform_test)
     testloader = torch.utils.data.DataLoader(testset, batch_size=256, shuffle=False, num_workers=2)
 
@@ -112,191 +115,228 @@ def main():
     #else:
     #   from functools import partial
     #  block_conv_ = partial(ds_conv, ds_type=args.ds_type)
-    net = greedyNet(block_conv, 1, args.feature_size, downsample=downsample, batchnorm=args.bn)
-        
+
+
+    
+
+    net_lbfgs = greedyNet(block_conv, 1, args.feature_size, downsample=downsample, batchnorm=args.bn)
+    net_adam = greedyNet(block_conv, 1, args.feature_size, downsample=downsample, batchnorm=args.bn)
+    
 
     if args.width_aux:
         num_feat = args.width_aux
     else:
         num_feat = args.feature_size
 
-    net_c = auxillary_classifier(avg_size=args.avg_size, in_size=in_size,
+    net_c_lbfgs = auxillary_classifier(avg_size=args.avg_size, in_size=in_size,
+                                n_lin=args.nlin, feature_size=num_feat,
+                                input_features=args.feature_size, batchn=args.bn)
+    
+    net_c_adam = auxillary_classifier(avg_size=args.avg_size, in_size=in_size,
                                 n_lin=args.nlin, feature_size=num_feat,
                                 input_features=args.feature_size, batchn=args.bn)
 
 
     with open(name_log_txt, "a") as text_file:
-        print(net, file=text_file)
-        print(net_c, file=text_file)
+        print(net_lbfgs, file=text_file)
+        print(net_c_lbfgs, file=text_file)
 
-    net = torch.nn.DataParallel(nn.Sequential(net,net_c)).to(device)
-    cudnn.benchmark = True
-
-    criterion_classifier = nn.CrossEntropyLoss()
-
-    net.module[0].unfreezeGradient(0)
-    optimizer = optim.SGD(filter(lambda p: p.requires_grad, net.parameters()), lr=args.lr, momentum=0.9, weight_decay=5e-4)
-
-
-    def train_classifier(epoch,n):
-        print('\nSubepoch: %d' % epoch)
-        net.train()
-        for k in range(n):
-            net.module[0].blocks[k].eval()
-
-
-        if args.debug_parameters:
-            #This is used to verify that early layers arent updated
-            import copy
-            #store all parameters on cpu as numpy array
-            net_cpu = copy.deepcopy(net).cpu()
-            net_cpu_dict = net_cpu.module[0].state_dict()
-            with open(debug_log_txt, "a") as text_file:
-                print('n: %d'%n)
-                for param in net_cpu_dict.keys():
-                    net_cpu_dict[param]=net_cpu_dict[param].numpy()
-                    print("parameter stored on cpu as numpy: %s  "%(param),file=text_file)
-
-        train_loss = 0
-        correct = 0
-        total = 0
-        for batch_idx, (inputs, targets) in enumerate(trainloader_classifier):
-            inputs, targets = inputs.to(device), targets.to(device)
-
-            optimizer.zero_grad()
-            inputs, targets = Variable(inputs), Variable(targets)
-            outputs = net.forward([inputs,n])
-
-            loss = criterion_classifier(outputs, targets)
-            loss.backward()
-            optimizer.step()
-            loss_pers=0
-
-            if args.debug_parameters:
-
-                s_dict = net.module[0].state_dict()
-                with open(debug_log_txt, "a") as text_file:
-                    print("iteration %d" % (batch_idx), file=text_file)
-                    for param in s_dict.keys():
-                        diff = np.sum((s_dict[param].cpu().numpy()-net_cpu_dict[param])**2)
-                        print("n: %d parameter: %s size: %s changed by %.5f" % (n,param,net_cpu_dict[param].shape,diff),file=text_file)
-
-            train_loss += loss.item() * targets.size(0)
-            _, predicted = torch.max(outputs.data, 1)
-            total += targets.size(0)
-            correct += predicted.eq(targets.data).cpu().sum()
-
-        acc = 100.*float(correct)/float(total)
-        print(f"Acc: {acc}, loss: {train_loss/total}")
-        return acc
-
-    all_outs = [[] for i in range(args.ncnn)]
-
-    def test(epoch,n,ensemble=False):
-        with torch.no_grad():
-            global acc_test_ensemble
-            all_targs = []
-            net.eval()
-            test_loss = 0
-            correct = 0
-            total = 0
-
-            all_outs[n] = []
-            for inputs, targets in testloader:
-                inputs, targets = inputs.to(device), targets.to(device)
-
-                inputs, targets = Variable(inputs), Variable(targets)
-                outputs = net([inputs, n])
-
-                loss = criterion_classifier(outputs, targets)
-
-                test_loss += loss.item()
-                _, predicted = torch.max(outputs.data, 1)
-                total += targets.size(0)
-                correct += predicted.eq(targets.data).cpu().sum()
-
-                if args.ensemble:
-                    all_outs[n].append(outputs.data.cpu())
-                    all_targs.append(targets.data.cpu())
-            acc = 100. * float(correct) / float(total)
-
-            if ensemble:
-                all_outs[n] = torch.cat(all_outs[n])
-                all_targs = torch.cat(all_targs)
-                #This is all on cpu so we dont care
-                weight = 2 ** (np.arange(n + 1)) / sum(2 ** np.arange(n + 1))
-                total_out = torch.zeros((total,10))
-
-                #very lazy
-                for i in range(n+1):
-                    total_out += float(weight[i])*all_outs[i]
-
-
-                _, predicted = torch.max(total_out, 1)
-                correct = predicted.eq(all_targs).sum()
-                acc_ensemble = 100*float(correct)/float(total)
-                print('Acc_ensemble: %.2f'%acc_ensemble)
-            if ensemble:
-                return acc,acc_ensemble
-            else:
-                return acc
-
-    i=0
-    num_ep = args.nepochs
+    net_lbfgs = torch.nn.DataParallel(nn.Sequential(net_lbfgs ,net_c_lbfgs)).to(device)
+    net_adam = torch.nn.DataParallel(nn.Sequential(net_adam ,net_c_adam)).to(device)
 
     for n in range(n_cnn):
-        net.module[0].unfreezeGradient(n)
-        lr = args.lr*5.0# we run at epoch 0 the lr reset to remove non learnable param
+        net_lbfgs.module[0].unfreezeGradient(n)
+        net_adam.module[0].unfreezeGradient(n)
 
-        for epoch in range(0, num_ep):
-            i=i+1
-            print('n: ',n)
-            if epoch % args.epochdecay == 0:
-                lr=lr/5.0
-                to_train = list(filter(lambda p: p.requires_grad, net.parameters()))
-                optimizer = optim.SGD(to_train, lr=lr, momentum=0.9, weight_decay=5e-4)
-                print('new lr:',lr)
+        net_lbfgs.train()
+        net_adam.train()
+        for k in range(n):
+            net_lbfgs.module[0].blocks[k].eval()
+            net_adam.module[0].blocks[k].eval()
 
-            acc_train = train_classifier(epoch,n)
-            if args.ensemble:
-                acc_test,acc_test_ensemble = test(epoch,n,args.ensemble)
+        lbfgs_stats = lbfgs_train(net_lbfgs, n, trainloader, device, max_eval=30)
+        adam_stats = adam_train(net_lbfgs, n, trainloader, device, max_eval=30)
+        
+        plot_stats(lbfgs_stats, adam_stats, f"greedynet_layer{n}")
 
-                with open(name_log_txt, "a") as text_file:
-                    print("n: {}, epoch {}, train {}, test {},ense {} "
-                        .format(n,epoch,acc_train,acc_test,acc_test_ensemble), file=text_file)
-            else:
-                acc_test = test(epoch, n)
-                with open(name_log_txt, "a") as text_file:
-                    print("n: {}, epoch {}, train {}, test {}, ".format(n,epoch,acc_train,acc_test), file=text_file)
-
-            if args.debug:
-                break
-
-
-        if args.down and n in downsample:
-            args.avg_size = int(args.avg_size/2)
-            in_size = int(in_size/2)
-            args.feature_size = int(args.feature_size*2)
-            args.width_aux = args.width_aux * 2
-
-        if args.width_aux:
-            num_feat = args.width_aux
-        else:
-            num_feat = args.feature_size
-
-        net_c = None
         if n < n_cnn-1:
-            net_c = auxillary_classifier(avg_size=args.avg_size, in_size=in_size,
+            net_c_lbfgs = auxillary_classifier(avg_size=args.avg_size, in_size=in_size,
                                         n_lin=args.nlin, feature_size=args.width_aux,
                                         input_features=args.feature_size, batchn=args.bn).to(device)
-            net.module[0].add_block(n in downsample)
-            net = torch.nn.DataParallel(nn.Sequential(net.module[0], net_c)).to(device)
+            net_lbfgs.module[0].add_block(n in downsample)
+            net_lbfgs = torch.nn.DataParallel(nn.Sequential(net_lbfgs.module[0], net_c_lbfgs)).to(device)
 
-    state_final = {
-                'net': net,
-                'acc_test': acc_test,
-                'acc_train': acc_train,
-            }
+            net_c_adam = auxillary_classifier(avg_size=args.avg_size, in_size=in_size,
+                                        n_lin=args.nlin, feature_size=args.width_aux,
+                                        input_features=args.feature_size, batchn=args.bn).to(device)
+            net_adam.module[0].add_block(n in downsample)
+            net_adam = torch.nn.DataParallel(nn.Sequential(net_adam.module[0], net_c_adam)).to(device)
+
+    net_lbfgs.cpu()
+    net_adam.cpu()
+    
+    torch.save(net_lbfgs.state_dict(), "models/lbfgs.pth")
+    torch.save(net_adam.state_dict(), "models/adam.pth")
+
+    # def train_classifier(epoch,n):
+    #     print('\nSubepoch: %d' % epoch)
+    #     net.train()
+    #     for k in range(n):
+    #         net.module[0].blocks[k].eval()
+
+
+    #     if args.debug_parameters:
+    #         #This is used to verify that early layers arent updated
+    #         import copy
+    #         #store all parameters on cpu as numpy array
+    #         net_cpu = copy.deepcopy(net).cpu()
+    #         net_cpu_dict = net_cpu.module[0].state_dict()
+    #         with open(debug_log_txt, "a") as text_file:
+    #             print('n: %d'%n)
+    #             for param in net_cpu_dict.keys():
+    #                 net_cpu_dict[param]=net_cpu_dict[param].numpy()
+    #                 print("parameter stored on cpu as numpy: %s  "%(param),file=text_file)
+
+    #     train_loss = 0
+    #     correct = 0
+    #     total = 0
+    #     for batch_idx, (inputs, targets) in enumerate(trainloader_classifier):
+    #         inputs, targets = inputs.to(device), targets.to(device)
+
+    #         optimizer.zero_grad()
+    #         inputs, targets = Variable(inputs), Variable(targets)
+    #         outputs = net.forward([inputs,n])
+
+    #         loss = criterion_classifier(outputs, targets)
+    #         loss.backward()
+    #         optimizer.step()
+    #         loss_pers=0
+
+    #         if args.debug_parameters:
+
+    #             s_dict = net.module[0].state_dict()
+    #             with open(debug_log_txt, "a") as text_file:
+    #                 print("iteration %d" % (batch_idx), file=text_file)
+    #                 for param in s_dict.keys():
+    #                     diff = np.sum((s_dict[param].cpu().numpy()-net_cpu_dict[param])**2)
+    #                     print("n: %d parameter: %s size: %s changed by %.5f" % (n,param,net_cpu_dict[param].shape,diff),file=text_file)
+
+    #         train_loss += loss.item() * targets.size(0)
+    #         _, predicted = torch.max(outputs.data, 1)
+    #         total += targets.size(0)
+    #         correct += predicted.eq(targets.data).cpu().sum()
+
+    #     acc = 100.*float(correct)/float(total)
+    #     print(f"Acc: {acc}, loss: {train_loss/total}")
+    #     return acc
+
+    # all_outs = [[] for i in range(args.ncnn)]
+
+    # def test(epoch,n,ensemble=False):
+    #     with torch.no_grad():
+    #         global acc_test_ensemble
+    #         all_targs = []
+    #         net.eval()
+    #         test_loss = 0
+    #         correct = 0
+    #         total = 0
+
+    #         all_outs[n] = []
+    #         for inputs, targets in testloader:
+    #             inputs, targets = inputs.to(device), targets.to(device)
+
+    #             inputs, targets = Variable(inputs), Variable(targets)
+    #             outputs = net([inputs, n])
+
+    #             loss = criterion_classifier(outputs, targets)
+
+    #             test_loss += loss.item()
+    #             _, predicted = torch.max(outputs.data, 1)
+    #             total += targets.size(0)
+    #             correct += predicted.eq(targets.data).cpu().sum()
+
+    #             if args.ensemble:
+    #                 all_outs[n].append(outputs.data.cpu())
+    #                 all_targs.append(targets.data.cpu())
+    #         acc = 100. * float(correct) / float(total)
+
+    #         if ensemble:
+    #             all_outs[n] = torch.cat(all_outs[n])
+    #             all_targs = torch.cat(all_targs)
+    #             #This is all on cpu so we dont care
+    #             weight = 2 ** (np.arange(n + 1)) / sum(2 ** np.arange(n + 1))
+    #             total_out = torch.zeros((total,10))
+
+    #             #very lazy
+    #             for i in range(n+1):
+    #                 total_out += float(weight[i])*all_outs[i]
+
+
+    #             _, predicted = torch.max(total_out, 1)
+    #             correct = predicted.eq(all_targs).sum()
+    #             acc_ensemble = 100*float(correct)/float(total)
+    #             print('Acc_ensemble: %.2f'%acc_ensemble)
+    #         if ensemble:
+    #             return acc,acc_ensemble
+    #         else:
+    #             return acc
+
+    # i=0
+    # num_ep = args.nepochs
+
+    # for n in range(n_cnn):
+    #     net.module[0].unfreezeGradient(n)
+    #     lr = args.lr*5.0# we run at epoch 0 the lr reset to remove non learnable param
+
+    #     for epoch in range(0, num_ep):
+    #         i=i+1
+    #         print('n: ',n)
+    #         if epoch % args.epochdecay == 0:
+    #             lr=lr/5.0
+    #             to_train = list(filter(lambda p: p.requires_grad, net.parameters()))
+    #             optimizer = optim.SGD(to_train, lr=lr, momentum=0.9, weight_decay=5e-4)
+    #             print('new lr:',lr)
+
+    #         acc_train = train_classifier(epoch,n)
+    #         if args.ensemble:
+    #             acc_test,acc_test_ensemble = test(epoch,n,args.ensemble)
+
+    #             with open(name_log_txt, "a") as text_file:
+    #                 print("n: {}, epoch {}, train {}, test {},ense {} "
+    #                     .format(n,epoch,acc_train,acc_test,acc_test_ensemble), file=text_file)
+    #         else:
+    #             acc_test = test(epoch, n)
+    #             with open(name_log_txt, "a") as text_file:
+    #                 print("n: {}, epoch {}, train {}, test {}, ".format(n,epoch,acc_train,acc_test), file=text_file)
+
+    #         if args.debug:
+    #             break
+
+
+    #     if args.down and n in downsample:
+    #         args.avg_size = int(args.avg_size/2)
+    #         in_size = int(in_size/2)
+    #         args.feature_size = int(args.feature_size*2)
+    #         args.width_aux = args.width_aux * 2
+
+    #     if args.width_aux:
+    #         num_feat = args.width_aux
+    #     else:
+    #         num_feat = args.feature_size
+
+    #     net_c = None
+    #     if n < n_cnn-1:
+    #         net_c = auxillary_classifier(avg_size=args.avg_size, in_size=in_size,
+    #                                     n_lin=args.nlin, feature_size=args.width_aux,
+    #                                     input_features=args.feature_size, batchn=args.bn).to(device)
+    #         net.module[0].add_block(n in downsample)
+    #         net = torch.nn.DataParallel(nn.Sequential(net.module[0], net_c)).to(device)
+
+    # state_final = {
+    #             'net': net,
+    #             'acc_test': acc_test,
+    #             'acc_train': acc_train,
+    #         }
 
 if __name__ == "__main__":
     main()
