@@ -37,7 +37,7 @@ def plot_stats(lbfgs_stats: TrainingStats,
     plt.savefig(fname=f"plots/accuracy/{name}.png")
     plt.cla()
 
-def comparing(features, classes, hidden_layer, samples):
+def comparing(features, classes, hidden_layer, samples, eval=20):
     print(f"Current model features {features}, classes {classes}, hidden_layer {hidden_layer}, samples {samples}")
 
     X, y = datasets.make_blobs(n_samples=samples, centers=classes, n_features=features)
@@ -47,10 +47,10 @@ def comparing(features, classes, hidden_layer, samples):
     trainloader = DataLoader(dataset, batch_size=128, shuffle=True, num_workers=4)
 
     model_lbfgs = TwoLayersModel(in_features=features, num_classes=classes, hidden_layer=hidden_layer).to(device)
-    lbfgs_stats = lbfgs_train(model_lbfgs, trainloader, device, max_eval=20)
+    lbfgs_stats = lbfgs_train(model_lbfgs, trainloader, device, max_eval=eval)
 
     model_adam = TwoLayersModel(in_features=features, num_classes=classes).to(device)
-    adam_stats = adam_train(model_adam, trainloader, device, max_eval=20)
+    adam_stats = adam_train(model_adam, trainloader, device, max_eval=eval)
 
     plot_stats(lbfgs_stats, adam_stats, f"f{features}_c{classes}_h{hidden_layer}_s{samples}")
 
@@ -60,9 +60,9 @@ if __name__ == "__main__":
     args = [
         (50, 200, 200, 10000),
         (20, 10, 40, 10000),
-        (20, 10, 40, 10000),
-        (30, 120, 40, 10000),
-        (30, 120, 500, 10000)
+        (30, 200, 40, 10000),
+        (30, 200, 500, 10000),
     ]
     for features, classes, hidden_layer, samples in args:
         comparing(features, classes, hidden_layer, samples)
+    comparing(features=100, classes=300, hidden_layer=400, samples=50000, eval=50)
