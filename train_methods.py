@@ -57,10 +57,11 @@ def lbfgs_train(model: nn.Module,
                 dataloader: DataLoader,
                 device: torch.device,
                 max_eval: int = 50,
-                history_size: int = 20) -> TrainingStats:
+                history_size: int = 50) -> TrainingStats:
     model.train()
     to_train = list(filter(lambda p: p.requires_grad , model.parameters()))
-    optimizer = optim.LBFGS(params=to_train, max_eval=max_eval, history_size=history_size, line_search_fn='strong_wolfe')
+    optimizer = optim.LBFGS(params=to_train, max_eval=max_eval, history_size=history_size, 
+                            line_search_fn='strong_wolfe', lr=0.3)
     loss_function = nn.CrossEntropyLoss(reduction='sum')
     epoch_num = [0]
     stats = TrainingStats()
@@ -68,7 +69,7 @@ def lbfgs_train(model: nn.Module,
     def closure() -> torch.Tensor:
         gradients = [torch.zeros_like(to_train[i].data) for i in range(len(to_train))]
         optimizer.zero_grad()
-        loss = None
+        loss = 0
         cnt_data = 0
         cnt_true_predictions = 0
 
@@ -83,10 +84,7 @@ def lbfgs_train(model: nn.Module,
                 cnt_true_predictions += torch.sum(predicted == targets).item()
                 for i, p in enumerate(to_train):
                     gradients[i] += p.grad
-                if loss is None:
-                    loss = current_loss
-                else:
-                    loss += current_loss
+                loss += current_loss
 
             cnt_data += targets.size(0)
 

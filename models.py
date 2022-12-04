@@ -25,3 +25,31 @@ class CustomDataset(Dataset):
 
     def __getitem__(self, idx):
         return torch.from_numpy(self.X[idx]), torch.from_numpy(np.array([self.y[idx]])) 
+
+
+class LeNet(nn.Module):
+    
+    def __init__(self, in_features=3, num_classes=10):
+        super(LeNet, self).__init__()
+        self.conv_block = nn.Sequential( 
+            nn.Conv2d(in_channels=in_features, out_channels=6, kernel_size=5, stride=1),
+            nn.Tanh(),
+            nn.MaxPool2d(2, 2),
+            nn.Conv2d(in_channels=6, out_channels=16, kernel_size=5, stride=1),
+            nn.Tanh(),
+            nn.MaxPool2d(2, 2)
+        )
+        
+        self.linear_block = nn.Sequential( 
+            nn.Linear(16 * 5 * 5, 120),
+            nn.Tanh(),
+            nn.Linear(120, 84),
+            nn.Tanh(),
+            nn.Linear(84, num_classes)
+        )
+        
+    def forward(self, x):
+        x = self.conv_block(x)
+        x = torch.flatten(x, start_dim=1)
+        x = self.linear_block(x)
+        return x

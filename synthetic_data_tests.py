@@ -3,39 +3,7 @@ import torch
 from models import *
 from torch.utils.data import DataLoader
 from train_methods import *
-import matplotlib.pyplot as plt
-
-def plot_stats(lbfgs_stats: TrainingStats, 
-               adam_stats: TrainingStats,
-               name: str):
-    plt.plot([i for i in range(len(lbfgs_stats.loss))], lbfgs_stats.loss, label="lbfgs")
-    plt.plot([i for i in range(len(adam_stats.loss))], adam_stats.loss, label="adam")
-    plt.ylabel("loss")
-    plt.xlabel("function evaluations")
-    plt.yscale("log")
-    plt.title("loss plot")
-    plt.legend()
-    plt.savefig(fname=f"plots/loss/{name}.png")
-    plt.cla()
-
-    plt.plot([i for i in range(len(lbfgs_stats.grad_norm))], lbfgs_stats.grad_norm, label="lbfgs")
-    plt.plot([i for i in range(len(adam_stats.grad_norm))], adam_stats.grad_norm, label="adam")
-    plt.ylabel("grad norm")
-    plt.xlabel("function evaluations")
-    plt.yscale("log")
-    plt.title("grad norm plot")
-    plt.legend()
-    plt.savefig(fname=f"plots/grad/{name}.png")
-    plt.cla()
-
-    plt.plot([i for i in range(len(lbfgs_stats.train_accuracy))], lbfgs_stats.train_accuracy, label="lbfgs")
-    plt.plot([i for i in range(len(adam_stats.train_accuracy))], adam_stats.train_accuracy, label="adam")
-    plt.ylabel("train accuracy")
-    plt.xlabel("function evaluations")
-    plt.title("train accuracy plot")
-    plt.legend()
-    plt.savefig(fname=f"plots/accuracy/{name}.png")
-    plt.cla()
+from common import plot_stats
 
 def comparing(features, classes, hidden_layer, samples, eval=20):
     print(f"Current model features {features}, classes {classes}, hidden_layer {hidden_layer}, samples {samples}")
@@ -53,8 +21,7 @@ def comparing(features, classes, hidden_layer, samples, eval=20):
     adam_stats = adam_train(model_adam, trainloader, device, max_eval=eval)
 
     plot_stats(lbfgs_stats, adam_stats, f"f{features}_c{classes}_h{hidden_layer}_s{samples}")
-
-
+    
 
 if __name__ == "__main__":
     args = [
