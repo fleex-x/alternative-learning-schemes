@@ -1,5 +1,15 @@
 import matplotlib.pyplot as plt
 from train_methods import TrainingStats
+from torch import nn 
+
+def model_size(model: nn.Module):
+    sz = 0
+    for p in filter(lambda p: p.requires_grad , model.parameters()):
+        mul = 1
+        for x in p.size():
+            mul *= x
+        sz += mul
+    return sz
 
 def plot_stats(lbfgs_stats: TrainingStats, 
                adam_stats: TrainingStats,

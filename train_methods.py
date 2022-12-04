@@ -3,6 +3,7 @@ from torch import nn
 from torch import optim
 from torch.utils.data import DataLoader
 from typing import List
+from common import model_size
 
 class TrainingStats:
     loss: List[float]
@@ -54,10 +55,12 @@ class TrainingStats:
 
 
 def lbfgs_train(model: nn.Module,
+                n: int,
                 dataloader: DataLoader,
                 device: torch.device,
                 max_eval: int = 50,
                 history_size: int = 50) -> TrainingStats:
+    print(f"LBFGS training, params {model_size(model)}\n")
     model.train()
     to_train = list(filter(lambda p: p.requires_grad , model.parameters()))
     optimizer = optim.LBFGS(params=to_train, max_eval=max_eval, history_size=history_size, 
@@ -75,7 +78,7 @@ def lbfgs_train(model: nn.Module,
 
         for inputs, targets in dataloader:
             inputs, targets = inputs.to(device), torch.flatten(targets).to(device).long()
-            outputs = model.forward(inputs)
+            outputs = model.forward([inputs, n])
             current_loss: torch.Tensor = loss_function(outputs, targets)
             current_loss.backward()
 
@@ -105,9 +108,11 @@ def lbfgs_train(model: nn.Module,
     return stats
         
 def adam_train(model: nn.Module,
+               n: int,  
                dataloader: DataLoader,
                device: torch.device,
                max_eval: int = 50) -> TrainingStats:
+    print(f"ADAM training, params {model_size(model)}\n")
     model.train()
     to_train = list(filter(lambda p: p.requires_grad , model.parameters()))
     optimizer = optim.Adam(params=to_train)
@@ -118,7 +123,7 @@ def adam_train(model: nn.Module,
         for inputs, targets in dataloader:
             inputs, targets = inputs.to(device), torch.flatten(targets).long().to(device)
             optimizer.zero_grad()
-            loss = loss_function(model(inputs), targets)
+            loss = loss_function(model.forward([inputs, n]), targets)
             loss.backward()
             optimizer.step()
 
