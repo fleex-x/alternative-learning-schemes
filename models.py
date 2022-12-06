@@ -3,17 +3,19 @@ import torch
 from torch.utils.data import Dataset
 import numpy as np
 
-class TwoLayersModel(nn.Module):
-    def __init__(self, num_classes, in_features, hidden_layer=10) -> None:
+class NNModel(nn.Module):
+    def __init__(self, num_classes, in_features, hidden_layers = [20, 30]) -> None:
         super().__init__()
-        self.layer1 = nn.Sequential(
-            nn.Linear(in_features=in_features, out_features=hidden_layer), 
-            nn.ReLU()
-        )
-        self.layer2 = nn.Linear(in_features=hidden_layer, out_features=num_classes)
+        lst = in_features
+        self.model: nn.Sequential = nn.Sequential()
+        for neurons in hidden_layers:
+            self.model.append(nn.Linear(in_features=lst, out_features=neurons))
+            self.model.append(nn.ReLU())
+            lst = neurons
+        self.model.append(nn.Linear(in_features=lst, out_features=num_classes))
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.layer2(self.layer1(x))
+        return self.model(x)
 
 class CustomDataset(Dataset):
     def __init__(self, X: np.ndarray, y: np.ndarray):
