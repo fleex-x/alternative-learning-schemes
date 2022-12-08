@@ -32,3 +32,13 @@ def plot_stats(lbfgs_stats: TrainingStats,
     plt.legend()
     plt.savefig(fname=f"plots/accuracy/{name}.png")
     plt.cla()
+
+    plt.plot([i for i in range(len(lbfgs_stats.step_size))], lbfgs_stats.step_size, label="lbfgs")
+    plt.plot([i for i in range(len(adam_stats.step_size))], adam_stats.step_size, label="adam")
+    plt.ylabel("step size")
+    plt.xlabel("function evaluations")
+    plt.yscale("log")
+    plt.title("step size plot")
+    plt.legend()
+    plt.savefig(fname=f"plots/step_size/{name}.png")
+    plt.cla()

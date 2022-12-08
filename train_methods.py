@@ -2,22 +2,38 @@ import torch
 from torch import nn
 from torch import optim
 from torch.utils.data import DataLoader
-from typing import List
+from typing import List, Any, Optional
+
+def get_dist(current_points: List[torch.Tensor], prev_points: List[torch.Tensor]) -> float:
+    res = 0
+    for i in range(len(current_points)):
+        res += (current_points[i] - prev_points[i]).square().sum().item()
+    return res
 
 class TrainingStats:
     loss: List[float]
     grad_norm: List[float]
     train_accuracy: List[float]
+    step_size: List[float]
+    prev_points: Any
 
     def __init__(self) -> None:
         self.loss = []
         self.grad_norm = []
         self.train_accuracy = []
+        self.step_size = []
+        self.prev_points = None
 
-    def update_stats(self, loss: float, grad_norm: float, train_accuracy: float):
+    def update_stats(self, 
+                     loss: float, 
+                     grad_norm: float, 
+                     train_accuracy: float,
+                     step_size: Optional[float] = None):
         self.loss.append(loss)
         self.grad_norm.append(grad_norm)
         self.train_accuracy.append(train_accuracy)
+        if step_size is not None:
+            self.step_size.append(step_size)
     
     def collect_stats(self, model: nn.Module, dataloader: DataLoader, device: torch.device):
         loss_function = nn.CrossEntropyLoss(reduction='sum')
@@ -46,11 +62,20 @@ class TrainingStats:
         with torch.no_grad():
             for g in gradients:
                 g /= cnt_data
-                grad_norm += g.pow(2.0).sum().item()
+                grad_norm += g.square().sum().item()
             grad_norm = grad_norm ** 0.5
         
-        self.update_stats(loss, grad_norm, accuracy)
-
+        if self.prev_points is not None:
+            self.update_stats(loss, 
+                              grad_norm, 
+                              accuracy, 
+                              get_dist([p.data for p in to_train], self.prev_points))
+        else:
+            self.update_stats(loss, 
+                              grad_norm, 
+                              accuracy)
+        
+        self.prev_points = [p.data.clone() for p in to_train]
 
 
 def lbfgs_train(model: nn.Module,
@@ -65,6 +90,7 @@ def lbfgs_train(model: nn.Module,
     loss_function = nn.CrossEntropyLoss(reduction='sum')
     epoch_num = [0]
     stats = TrainingStats()
+    prev_points = [None]
 
     def closure() -> torch.Tensor:
         gradients = [torch.zeros_like(to_train[i].data) for i in range(len(to_train))]
@@ -89,14 +115,23 @@ def lbfgs_train(model: nn.Module,
             cnt_data += targets.size(0)
 
         grad_norm = 0
+        step_size = None
+        if prev_points[0] is not None:
+            step_size = get_dist([p.data for p in to_train], prev_points[0])
+            
         with torch.no_grad():
+            prev_points[0] = [0] * len(to_train)
             for i, p in enumerate(to_train):
                 p.grad = gradients[i] / cnt_data
-                grad_norm += p.grad.pow(2.0).sum().item()
+                grad_norm += p.grad.square().sum().item()
+                prev_points[0][i] = p.data.clone()
             loss /= cnt_data
             grad_norm = grad_norm ** 0.5
 
-        stats.update_stats(loss.item(), grad_norm, cnt_true_predictions/cnt_data)
+        if step_size is None:
+            stats.update_stats(loss.item(), grad_norm, cnt_true_predictions/cnt_data)
+        else:
+            stats.update_stats(loss.item(), grad_norm, cnt_true_predictions/cnt_data, step_size)
 
         print(f"Epoch #{epoch_num[0]} loss is {loss.item()}")
         epoch_num[0] += 1
