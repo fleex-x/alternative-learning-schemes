@@ -2,7 +2,7 @@ import torch
 from torch import nn
 from torch import optim
 from torch.utils.data import DataLoader
-from typing import List, Any, Optional
+from typing import List, Any, Optional, Tuple
 
 def get_dist(current_points: List[torch.Tensor], prev_points: List[torch.Tensor]) -> float:
     res = 0
@@ -83,6 +83,7 @@ def lbfgs_train(model: nn.Module,
                 device: torch.device,
                 max_eval: int = 50,
                 history_size: int = 50) -> TrainingStats:
+    print("\n\L-BFGS train\n\n")
     model.train()
     to_train = list(filter(lambda p: p.requires_grad , model.parameters()))
     optimizer = optim.LBFGS(params=to_train, max_eval=max_eval, history_size=history_size, 
@@ -118,7 +119,7 @@ def lbfgs_train(model: nn.Module,
         step_size = None
         if prev_points[0] is not None:
             step_size = get_dist([p.data for p in to_train], prev_points[0])
-            
+
         with torch.no_grad():
             prev_points[0] = [0] * len(to_train)
             for i, p in enumerate(to_train):
@@ -143,6 +144,7 @@ def adam_train(model: nn.Module,
                dataloader: DataLoader,
                device: torch.device,
                max_eval: int = 50) -> TrainingStats:
+    print("\n\Adam train\n\n")
     model.train()
     to_train = list(filter(lambda p: p.requires_grad , model.parameters()))
     optimizer = optim.Adam(params=to_train)
@@ -160,3 +162,29 @@ def adam_train(model: nn.Module,
         stats.collect_stats(model, dataloader, device)
         print(f"Epoch #{epoch} loss is {stats.loss[-1]}")
     return stats
+
+def combined_train(model: nn.Module,
+                   dataloader: DataLoader,
+                   device: torch.device,
+                   max_eval: int = 50) -> Tuple[TrainingStats, TrainingStats]:
+    print("\n\nCombined train\n\n")
+
+    model.train()
+    to_train = list(filter(lambda p: p.requires_grad , model.parameters()))
+    optimizer = optim.Adam(params=to_train)
+    stats = TrainingStats()
+
+    loss_function = nn.CrossEntropyLoss(reduction='mean')
+    for epoch in range(max_eval):
+        for inputs, targets in dataloader:
+            inputs, targets = inputs.to(device), torch.flatten(targets).long().to(device)
+            optimizer.zero_grad()
+            loss = loss_function(model(inputs), targets)
+            loss.backward()
+            optimizer.step()
+
+        stats.collect_stats(model, dataloader, device)
+        if stats.grad_norm[-1] < 1e-1:
+            return stats, lbfgs_train(model, dataloader, device, max(5, max_eval - epoch - 1))
+        print(f"Epoch #{epoch} loss is {stats.loss[-1]}")
+    return stats, lbfgs_train(model, dataloader, device, 5)

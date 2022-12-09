@@ -37,12 +37,12 @@ def main():
     #     for x in p.size():
     #         mul *= x
     #     sz += mul
-    lbfgs_stats = lbfgs_train(model_lbfgs, trainloader, device, max_eval=50)
+    lbfgs_stats = lbfgs_train(model_lbfgs, trainloader, device, max_eval=50, history_size=10)
 
     model_adam = LeNet().to(device)
     adam_stats = adam_train(model_adam, trainloader, device, max_eval=50)
 
-    plot_stats(lbfgs_stats, adam_stats, "lenet_cifar10")
+    plot_stats(lbfgs_stats, adam_stats, "lenet_cifar10#1")
 
 if __name__ == "__main__":
     main()
