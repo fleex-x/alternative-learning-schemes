@@ -184,7 +184,7 @@ def combined_train(model: nn.Module,
             optimizer.step()
 
         stats.collect_stats(model, dataloader, device)
-        if stats.grad_norm[-1] < 1e-1:
+        if stats.grad_norm[-1] < 1:
             return stats, lbfgs_train(model, dataloader, device, max(5, max_eval - epoch - 1))
         print(f"Epoch #{epoch} loss is {stats.loss[-1]}")
     return stats, lbfgs_train(model, dataloader, device, 5)

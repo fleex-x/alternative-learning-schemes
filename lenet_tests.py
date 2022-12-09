@@ -31,12 +31,13 @@ def main():
     device = torch.device("mps")
 
     model_lbfgs = LeNet().to(device)
-    # sz = 0
-    # for p in model_lbfgs.parameters():
-    #     mul = 1
-    #     for x in p.size():
-    #         mul *= x
-    #     sz += mul
+    sz = 0
+    for p in model_lbfgs.parameters():
+        mul = 1
+        for x in p.size():
+            mul *= x
+        sz += mul
+    print(sz)
     lbfgs_stats = lbfgs_train(model_lbfgs, trainloader, device, max_eval=50, history_size=10)
 
     model_adam = LeNet().to(device)
