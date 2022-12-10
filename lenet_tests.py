@@ -29,21 +29,17 @@ def main():
     testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=2)
 
     device = torch.device("mps")
+    
+    model_combined = LeNet().to(device)
+    combined_stats = combined_train(model_combined, trainloader, device, max_eval=50)
 
     model_lbfgs = LeNet().to(device)
-    sz = 0
-    for p in model_lbfgs.parameters():
-        mul = 1
-        for x in p.size():
-            mul *= x
-        sz += mul
-    print(sz)
-    lbfgs_stats = lbfgs_train(model_lbfgs, trainloader, device, max_eval=50, history_size=10)
+    lbfgs_stats = lbfgs_train(model_lbfgs, trainloader, device, max_eval=50, history_size=50)
 
     model_adam = LeNet().to(device)
     adam_stats = adam_train(model_adam, trainloader, device, max_eval=50)
 
-    plot_stats(lbfgs_stats, adam_stats, "lenet_cifar10#1")
+    plot_stats(lbfgs_stats, adam_stats, combined_stats, "lenet_cifar10_combined_train")
 
 if __name__ == "__main__":
     main()
