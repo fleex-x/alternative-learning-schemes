@@ -14,15 +14,15 @@ def comparing(features, classes, hidden_layer, samples, eval=20):
     dataset = CustomDataset(X, y)
     trainloader = DataLoader(dataset, batch_size=128, shuffle=True, num_workers=4)
 
-    model_combined = NNModel(in_features=features, num_classes=classes).to(device)
-    model_lbfgs = NNModel(in_features=features, num_classes=classes).to(device)
-    model_adam = NNModel(in_features=features, num_classes=classes).to(device)
+    model_combined = NNModel(in_features=features, num_classes=classes, hidden_layers=hidden_layer).to(device)
+    model_lbfgs = NNModel(in_features=features, num_classes=classes, hidden_layers=hidden_layer).to(device)
+    model_adam = NNModel(in_features=features, num_classes=classes, hidden_layers=hidden_layer).to(device)
 
-    combined_stats = combined_train(model_combined, trainloader, device, max_eval=eval)
     lbfgs_stats = lbfgs_train(model_lbfgs, trainloader, device, max_eval=eval)
+    combined_stats = combined_train(model_combined, trainloader, device, max_eval=eval)
     adam_stats = adam_train(model_adam, trainloader, device, max_eval=eval)
 
-    plot_stats(lbfgs_stats, adam_stats, combined_stats, f"NNModel#3_f{features}_c{classes}_s{samples}")
+    plot_stats(lbfgs_stats, adam_stats, combined_stats, f"TestNNModel_f{features}_c{classes}_s{samples}")
     
 
 if __name__ == "__main__":
@@ -34,4 +34,4 @@ if __name__ == "__main__":
     # ]
     # for features, classes, hidden_layer, samples in args:
     #     comparing(features, classes, hidden_layer, samples)
-    comparing(features=300, classes=900, hidden_layer=400, samples=9000, eval=40)
+    comparing(features=40, classes=40, hidden_layer=[20], samples=10000, eval=20)
