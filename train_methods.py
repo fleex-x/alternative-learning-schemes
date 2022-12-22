@@ -4,6 +4,7 @@ from torch import optim
 from torch.utils.data import DataLoader
 from typing import List, Any, Optional, Tuple
 from dataclasses import dataclass
+from sparse_lbfgs import SparseLBFGS
 
 @dataclass
 class SamplesStats:
@@ -187,3 +188,54 @@ def combined_train(model: nn.Module,
         if stats.train_accuracy[-1] >= 0.5:
             return stats, lbfgs_train(model, dataloader, device, max(5, max_eval - epoch - 1))
     return stats, lbfgs_train(model, dataloader, device, 5)
+
+
+
+
+def sparse_lbfgs_train(model: nn.Module,
+                dataloader: DataLoader,
+                device: torch.device,
+                max_eval: int = 50,
+                history_size: int = 50) -> TrainingStats:
+    print("\n\nL-BFGS train\n\n")
+    model.train()
+    to_train = list(filter(lambda p: p.requires_grad , model.parameters()))
+    epoch_num = [0]
+    stats = TrainingStats()
+    prev_points = [None]
+
+    def closure() -> torch.Tensor:
+        samples_stats = loss_grad_acc_over_samples(model, dataloader, device)
+
+        step_size = None
+        with torch.no_grad():
+            if prev_points[0] is not None:
+                step_size = get_dist([p.data for p in to_train], prev_points[0])
+
+            prev_points[0] = [0] * len(to_train)
+            for i, p in enumerate(to_train):
+                p.grad = samples_stats.gradients[i]
+                prev_points[0][i] = p.data.clone()
+
+        if step_size is None:
+            stats.update_stats(samples_stats.loss.item(), 
+                               samples_stats.grad_norm, 
+                               samples_stats.accuracy)
+        else:
+            stats.update_stats(samples_stats.loss.item(), 
+                               samples_stats.grad_norm, 
+                               samples_stats.accuracy, 
+                               step_size)
+
+        print(f"Epoch #{epoch_num[0]} loss is {samples_stats.loss.item()}")
+        epoch_num[0] += 1
+        return samples_stats.loss
+
+    optimizer = SparseLBFGS(param_groups=[to_train], func=None, func_grad=closure, history_size=history_size)
+    for _ in range(max_eval):
+        optimizer.optimization_step()
+        if optimizer.finished():
+            break
+
+    optimizer.step(closure)
+    return stats
