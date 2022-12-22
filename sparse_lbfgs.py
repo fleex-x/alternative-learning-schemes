@@ -266,16 +266,15 @@ class SparseLBFGS:
         # After that search params.data() are already in optimal point
 
         print(f"alpha {alpha}")
+        direction.mul_scalar(alpha)
 
-        if direction.mul_scalar(alpha).norm().item() < self.tolerance_change:
+        if direction.norm().item() < self.tolerance_change:
             self.state = LBFGSState.Finish
             return self.state
 
-        grad_delta = grad.mul_scalar(-1)
-        grad_delta.mul_scalar(-1)
-        grad_delta.add_tensor(concat(self.__current_group_grads))
+        grad_delta = concat(self.__current_group_grads).add_tensor(grad, mul=-1)
         self.__update_history(
-            self.__reshape_in_groups(direction.mul_scalar(-1)),
+            self.__reshape_in_groups(direction),
             self.__reshape_in_groups(grad_delta)
         )
 
@@ -284,6 +283,4 @@ class SparseLBFGS:
     def finished(self) -> bool:
         return self.state == LBFGSState.Finish
 
-# a = ViewAsFlatTensor([torch.ones(1), torch.ones(1)])
-# b = ViewAsFlatTensor([torch.ones(1), torch.ones(1)])
-# print(dot_same_shape(a, b))
+
