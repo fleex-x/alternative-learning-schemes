@@ -71,7 +71,7 @@ def concat(views: List[ViewAsFlatTensor]) -> ViewAsFlatTensor:
     return ViewAsFlatTensor(result)
         
 
-def dot_same_shape(a: ViewAsFlatTensor, b: ViewAsFlatTensor) -> torch.Tensor:
+def dot(a: ViewAsFlatTensor, b: ViewAsFlatTensor) -> torch.Tensor:
     res = 0
     for i in range(len(a.tensors)):
         res += torch.dot(a.tensors[i], b.tensors[i])
@@ -96,7 +96,7 @@ class LBFGSHistory:
                        grad_delta: ViewAsFlatTensor):
         self.__points_delta.append(point_delta)
         self.__grads_delta.append(grad_delta)
-        self.__p.append(1./dot_same_shape(point_delta, grad_delta))
+        self.__p.append(1./dot(point_delta, grad_delta))
         if len(self.__points_delta) > self.history_size:
             self.__points_delta.pop(0)
             self.__grads_delta.pop(0)
@@ -107,17 +107,19 @@ class LBFGSHistory:
         m = len(self.__grads_delta)
         if m == 0:
             return res.mul_scalar(-1)
-        a = []
-        for i in range(m):
-            a.append(self.__p[i] * dot_same_shape(self.__points_delta[i], res))
-            res.add_tensor(self.__grads_delta[i], mul=-a[i])
-        res.mul_scalar(
-            dot_same_shape(self.__points_delta[-1], self.__grads_delta[-1]) / 
-            dot_same_shape(self.__grads_delta[-1], self.__grads_delta[-1])
-        )
+        a = [0] * m
         for i in range(m - 1, -1, -1):
-            b = (self.__p[i] * dot_same_shape(self.__grads_delta[i], res))
+            a[i] = self.__p[i] * dot(self.__points_delta[i], res)
+            res.add_tensor(self.__grads_delta[i], mul=-a[i])
+        print(a)
+        res.mul_scalar(
+            dot(self.__points_delta[-1], self.__grads_delta[-1]) / 
+            dot(self.__grads_delta[-1], self.__grads_delta[-1])
+        )
+        for i in range(m):
+            b = (self.__p[i] * dot(self.__grads_delta[i], res))
             res.add_tensor(self.__grads_delta[i], mul=(a[i] - b))
+        print(res.norm())
         return res.mul_scalar(-1)
 
 
@@ -138,8 +140,8 @@ def wolfe_search(
     while dir_norm * step > tolerance_change:    
         cur_loss, cur_grad = func(point.clone().add_tensor(direction, mul=step))
 
-        if cur_loss <= start_loss + c1 * step * dot_same_shape(direction, start_grad) and \
-           -dot_same_shape(direction, cur_grad) <= -c2 * dot_same_shape(direction, start_grad):
+        if cur_loss <= start_loss + c1 * step * dot(direction, start_grad) and \
+           -dot(direction, cur_grad) <= -c2 * dot(direction, start_grad):
            break
 
         step /= 2 
@@ -252,7 +254,7 @@ class SparseLBFGS:
         direction = concat(group_directions)
         point = concat(self.__current_group_points)
 
-        assert dot_same_shape(direction, grad) < 0 # direction must be a decrease direction
+        assert dot(direction, grad) < 0 # direction must be a decrease direction
 
         print(f"point norm {point.norm().item()}")
 
@@ -263,7 +265,8 @@ class SparseLBFGS:
 
         alpha = wolfe_search(point, self.__current_loss, grad, direction, self.lr, func, self.tolerance_change)
 
-        # After that search params.data() are already in optimal point
+        # After that search __current_group_points and __current_group_grads
+        # are both in correct state
 
         print(f"alpha {alpha}")
         direction.mul_scalar(alpha)
@@ -272,7 +275,10 @@ class SparseLBFGS:
             self.state = LBFGSState.Finish
             return self.state
 
-        grad_delta = concat(self.__current_group_grads).add_tensor(grad, mul=-1)
+        end_it_point = concat(self.__current_group_points)
+        print(f"diff {point.add_tensor(direction).add_tensor(end_it_point, mul=-1).norm().item()}")
+
+        grad_delta = grad.mul_scalar(-1).add_tensor(concat(self.__current_group_grads))
         self.__update_history(
             self.__reshape_in_groups(direction),
             self.__reshape_in_groups(grad_delta)

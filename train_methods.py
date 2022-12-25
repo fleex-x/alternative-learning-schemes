@@ -231,11 +231,10 @@ def sparse_lbfgs_train(model: nn.Module,
         epoch_num[0] += 1
         return samples_stats.loss
 
-    optimizer = SparseLBFGS(param_groups=[to_train], func=None, func_grad=closure, history_size=history_size)
+    optimizer = SparseLBFGS(param_groups=[to_train], func=None, func_grad=closure, history_size=history_size, lr=1)
     for _ in range(max_eval):
         optimizer.optimization_step()
         if optimizer.finished():
             break
 
-    optimizer.step(closure)
     return stats
